@@ -1,0 +1,28 @@
+# Virtual environments
+venv/
+venv313/
+stt_env_new/
+env/
+.env
+
+# Temporary files
+temp_audio_*
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

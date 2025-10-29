@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Button Test</title>
+</head>
+<body>
+    <button id="recBtn" class="primary">Start Recording</button>
+    <span id="recStatus">Ready</span>
+    <div id="transcript"></div>
+
+    <script>
+        const recBtn = document.getElementById('recBtn');
+        const recStatus = document.getElementById('recStatus');
+        
+        recBtn.addEventListener('click', function() {
+            console.log('Button clicked!');
+            alert('Button is working!');
+            
+            if (recBtn.textContent === 'Start Recording') {
+                recBtn.textContent = 'Stop Recording';
+                recStatus.textContent = 'Recording...';
+            } else {
+                recBtn.textContent = 'Start Recording';
+                recStatus.textContent = 'Ready';
+            }
+        });
+        
+        console.log('Script loaded');
+    </script>
+</body>
+</html>
