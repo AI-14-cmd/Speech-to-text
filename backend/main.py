@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import whisper
 import tempfile
 import os
@@ -46,9 +47,18 @@ async def startup_event():
     """Start model loading in background"""
     asyncio.create_task(load_model_async())
 
+# Mount static files (CSS, JS)
+app.mount("/css", StaticFiles(directory="../frontend/css"), name="css")
+app.mount("/js", StaticFiles(directory="../frontend/js"), name="js")
+
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Serve frontend HTML"""
+    return FileResponse("../frontend/index.html")
+
+@app.get("/api")
+async def api_root():
+    """API status endpoint"""
     return {"message": "Speech to Text API", "status": "running"}
 
 @app.get("/health")
