@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import whisper
 import tempfile
 import os
+import asyncio
 from typing import Optional
 import logging
 
@@ -24,18 +25,26 @@ app.add_middleware(
 
 # Load Whisper model on startup
 model = None
+model_loading = False
 
-@app.on_event("startup")
-async def startup_event():
-    """Load Whisper model on app startup"""
-    global model
+async def load_model_async():
+    """Load Whisper model in background"""
+    global model, model_loading
+    model_loading = True
     try:
         logger.info("Loading Whisper model (small)...")
-        model = whisper.load_model("small")
+        # Run in thread pool to avoid blocking
+        model = await asyncio.to_thread(whisper.load_model, "small")
         logger.info("Whisper model loaded successfully")
     except Exception as e:
         logger.error(f"Failed to load Whisper model: {e}")
-        # Model will be None, handle in endpoints
+    finally:
+        model_loading = False
+
+@app.on_event("startup")
+async def startup_event():
+    """Start model loading in background"""
+    asyncio.create_task(load_model_async())
 
 @app.get("/")
 async def root():
@@ -47,7 +56,8 @@ async def health():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "model_loaded": model is not None
+        "model_loaded": model is not None,
+        "model_loading": model_loading
     }
 
 @app.post("/transcribe")
@@ -66,7 +76,10 @@ async def transcribe_audio(
         JSON with transcribed text
     """
     if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+        if model_loading:
+            raise HTTPException(status_code=503, detail="Model is still loading, please wait a moment")
+        else:
+            raise HTTPException(status_code=503, detail="Model failed to load")
     
     # Validate file
     if not file.content_type or not file.content_type.startswith('audio/'):
