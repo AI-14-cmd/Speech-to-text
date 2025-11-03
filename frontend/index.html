@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="kn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Speech to Word</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-left">
+      <label for="language" class="label">Language</label>
+      <select id="language" name="language" class="select">
+        <option value="en">English</option>
+        <option value="hi">Hindi</option>
+        <option value="kn" selected>Kannada</option>
+      </select>
+    </div>
+    <div class="header-right">
+      <button id="recBtn" class="primary">Start Listening</button>
+      <span id="recStatus" class="muted status-idle">Ready</span>
+    </div>
+  </header>
+
+  <main class="page-wrap">
+    <div class="page">
+      <div class="toolbar">
+        <button id="clearBtn" class="secondary">Clear</button>
+        <button id="downloadBtn" class="secondary">Download Word</button>
+      </div>
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

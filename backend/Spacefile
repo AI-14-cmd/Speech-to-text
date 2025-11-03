@@ -1,0 +1,15 @@
+# Spacefile Docs: https://deta.space/docs/en/build/reference/spacefile
+v: 0
+micros:
+  - name: speech-to-text-api
+    src: .
+    engine: python3.9
+    primary: true
+    public_routes:
+      - "/*"
+    presets:
+      env:
+        - name: PYTHONUNBUFFERED
+          description: Python unbuffered output
+          default: "1"
+    run: uvicorn main:app --host 0.0.0.0 --port 8080

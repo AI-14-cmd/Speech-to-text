@@ -1,0 +1,12 @@
+{
+  "name": "speech-to-text-frontend",
+  "version": "1.0.0",
+  "description": "Speech to Text Frontend for Vercel",
+  "scripts": {
+    "dev": "npx serve .",
+    "build": "echo 'Static site, no build needed'"
+  },
+  "keywords": ["speech-to-text", "whisper", "transcription"],
+  "author": "",
+  "license": "MIT"
+}

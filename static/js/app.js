@@ -7,40 +7,67 @@ const recStatus = document.getElementById('recStatus');
 const transcript = document.getElementById('transcript');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearBtn = document.getElementById('clearBtn');
-// const wordCount = document.getElementById('wordCount'); // Element doesn't exist
 const languageSelect = document.getElementById('language');
 
-// Speech recognition variables
-let recognition = null;
+// Audio capture variables
+let mediaRecorder = null;
+let audioChunks = [];
 let isRecording = false;
 let fullTranscript = '';
+let audioContext = null;
+let processor = null;
+let recognition = null; // For fallback Web Speech API
+let useWhisper = false; // Will be set based on server capability
 
-// Language mapping for Web Speech API
-function mapLang(code) {
-    switch (code) {
-        case 'en': return 'en-US';
-        case 'hi': return 'hi-IN';
-        case 'kn': return 'kn-IN';
-        default: return 'en-US';
+// Initialize MediaRecorder for Whisper
+async function initMediaRecorder() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        
+        // Setup audio context for chunked sending
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        // Create script processor for real-time chunk sending (every ~1 second)
+        processor = audioContext.createScriptProcessor(16000, 1, 1);
+        
+        processor.onaudioprocess = (event) => {
+            const inputData = event.inputBuffer.getChannelData(0);
+            const audioData = new Float32Array(inputData);
+            socket.emit('audio_chunk', Array.from(audioData));
+        };
+        
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = () => {
+            console.log('Recording stopped');
+        };
+        
+        return true;
+    } catch (error) {
+        console.error('Error accessing microphone:', error);
+        return false;
     }
 }
 
-// Initialize speech recognition
-function initSpeechRecognition() {
+// Initialize Web Speech API (fallback)
+function initWebSpeechAPI() {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        recStatus.textContent = 'Speech recognition not supported';
-        recStatus.className = 'status-error';
-        recBtn.disabled = true;
         return false;
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
-    
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = mapLang(languageSelect.value);
-    recognition.maxAlternatives = 1;
+    recognition.lang = 'kn-IN';
     
     recognition.onstart = () => {
         isRecording = true;
@@ -50,71 +77,32 @@ function initSpeechRecognition() {
     };
     
     recognition.onresult = (event) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        
+        let interim = '';
         for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcriptPart = event.results[i][0].transcript;
+            const t = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
-                finalTranscript += transcriptPart + ' ';
+                fullTranscript += t + ' ';
             } else {
-                interimTranscript += transcriptPart;
+                interim += t;
             }
         }
-        
-        if (finalTranscript) {
-            fullTranscript += finalTranscript;
-            // Send transcription to server
-            socket.emit('transcription', { text: finalTranscript.trim() });
-        }
-        
-        // Update display with both final and interim results
-        transcript.textContent = fullTranscript + interimTranscript;
-        
-        // Update word count (commented out since element doesn't exist)
-        // const words = fullTranscript.trim().split(/\s+/).filter(word => word.length > 0);
-        // wordCount.textContent = `Words: ${words.length}`;
-        
-        // Enable download button if there's content
+        transcript.textContent = fullTranscript + interim;
         downloadBtn.disabled = !fullTranscript.trim();
     };
     
     recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-            recStatus.textContent = 'Microphone access denied. Please allow microphone access.';
-        } else if (event.error === 'network') {
-            recStatus.textContent = 'Network error. Check internet connection.';
-            // Auto-retry after 2 seconds
-            setTimeout(() => {
-                if (isRecording) {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        stopListening();
-                    }
-                }
-            }, 2000);
-            return; // Don't stop recording immediately
-        } else {
-            recStatus.textContent = `Error: ${event.error}`;
+        console.error('Speech error:', event.error);
+        if (event.error !== 'network') {
+            recStatus.textContent = 'Error: ' + event.error;
+            recStatus.className = 'status-error';
+            stopListening();
         }
-        recStatus.className = 'status-error';
-        stopListening();
     };
     
     recognition.onend = () => {
         if (isRecording) {
-            // Manual restart for continuous recording
             setTimeout(() => {
-                if (isRecording) {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.log('Recognition restart failed:', e);
-                        stopListening();
-                    }
-                }
+                if (isRecording) recognition.start();
             }, 100);
         }
     };
@@ -122,26 +110,68 @@ function initSpeechRecognition() {
     return true;
 }
 
-// Start listening (real-time SpeechRecognition)
-function startListening() {
-    const ok = initSpeechRecognition();
-    if (!ok) return;
-    try { recognition.start(); } catch (e) { /* ignore if already started */ }
-    isRecording = true;
-    recBtn.textContent = 'Stop Listening';
-    recStatus.textContent = 'Listening...';
-    recStatus.className = 'status-listening';
+// Start listening
+async function startListening() {
+    if (useWhisper) {
+        const ok = await initMediaRecorder();
+        if (!ok) {
+            // Fallback to Web Speech API if Whisper fails
+            if (initWebSpeechAPI()) {
+                useWhisper = false;
+                recognition.start();
+                return;
+            } else {
+                recStatus.textContent = 'Audio access denied';
+                recStatus.className = 'status-error';
+                return;
+            }
+        }
+        
+        isRecording = true;
+        recBtn.textContent = 'Stop Listening';
+        recStatus.textContent = 'Listening...';
+        recStatus.className = 'status-listening';
+        
+        if (mediaRecorder) {
+            audioChunks = [];
+            mediaRecorder.start();
+        }
+    } else {
+        // Use Web Speech API
+        if (!recognition) {
+            initWebSpeechAPI();
+        }
+        if (recognition) {
+            try {
+                recognition.start();
+            } catch (e) {
+                console.log('Recognition already started');
+            }
+        }
+    }
 }
 
 // Stop listening
 function stopListening() {
-    if (isRecording && recognition) {
-        isRecording = false;
-        try { recognition.stop(); } catch (e) {}
-        recBtn.textContent = 'Start Listening';
-        recStatus.textContent = 'Ready';
-        recStatus.className = 'status-idle';
+    if (!isRecording) return;
+    
+    isRecording = false;
+    
+    if (useWhisper && mediaRecorder) {
+        mediaRecorder.stop();
+        if (processor) processor.disconnect();
+        if (audioContext) audioContext.close();
+    } else if (recognition) {
+        try {
+            recognition.stop();
+        } catch (e) {
+            console.log('Recognition stop error:', e);
+        }
     }
+    
+    recBtn.textContent = 'Start Listening';
+    recStatus.textContent = 'Ready';
+    recStatus.className = 'status-idle';
 }
 
 
@@ -220,8 +250,6 @@ languageSelect.addEventListener('change', () => {
     socket.emit('reset');
     
     // Show brief feedback
-    const originalStatus = recStatus.textContent;
-    const originalClass = recStatus.className;
     recStatus.textContent = 'Language changed - transcript cleared';
     recStatus.className = 'muted';
     
@@ -232,17 +260,10 @@ languageSelect.addEventListener('change', () => {
         }
     }, 2000);
     
-    if (isRecording) {
-        stopListening();
-        setTimeout(startListening, 100);
-    }
+    // Note: Whisper language is handled server-side, so no restart needed
 });
 
-// Socket.IO event handlers
-socket.on('connect', () => {
-    console.log('Connected to server');
-});
-
+// Socket.IO disconnect handler
 socket.on('disconnect', () => {
     console.log('Disconnected from server');
     if (isRecording) {
@@ -251,8 +272,23 @@ socket.on('disconnect', () => {
 });
 
 socket.on('update', (data) => {
-    // Handle server updates if needed
+    if (data.text) {
+        fullTranscript = data.full_text || fullTranscript + data.text;
+        transcript.textContent = fullTranscript;
+        downloadBtn.disabled = !fullTranscript.trim();
+    }
     console.log('Server update:', data);
+});
+
+// Check if server has Whisper capability
+socket.on('connect', () => {
+    console.log('Connected to server');
+    socket.emit('check_whisper');
+});
+
+socket.on('whisper_status', (data) => {
+    useWhisper = data.available;
+    console.log('Whisper available:', useWhisper);
 });
 
 // Initialize on page load
@@ -260,9 +296,9 @@ document.addEventListener('DOMContentLoaded', () => {
     recStatus.textContent = 'Ready';
     recStatus.className = 'status-idle';
     
-    // Check for speech recognition support
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        recStatus.textContent = 'Speech recognition not supported in this browser';
+    // Check for MediaRecorder and getUserMedia support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        recStatus.textContent = 'Audio recording not supported in this browser';
         recStatus.className = 'status-error';
         recBtn.disabled = true;
     }
