@@ -99,9 +99,11 @@ async function transcribeAudio(audioBlob) {
         
         const result = await response.json();
         
-        if (result.success && result.text) {
-            fullTranscript += result.text + ' ';
-            transcript.textContent = fullTranscript;
+        if (result.success) {
+            if (result.text) {
+                fullTranscript += result.text + ' ';
+                transcript.textContent = fullTranscript;
+            }
             downloadBtn.disabled = false;
             recStatus.textContent = 'Transcription complete';
             recStatus.className = 'status-idle';
