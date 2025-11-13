@@ -9,6 +9,8 @@ import wave
 from docx import Document
 from docx.shared import Pt
 from werkzeug.utils import secure_filename
+import whisper
+import torch
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-123'
@@ -22,10 +24,12 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# Use Web Speech API mode (Whisper disabled due to compatibility issues)
-print("Using Web Speech API mode")
-model = None
-USE_WHISPER = False
+# Load Whisper model
+print("Loading Whisper model...")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+model = whisper.load_model("base", device=DEVICE)
+USE_WHISPER = True
+print("Whisper model loaded successfully")
 
 # Store transcriptions
 transcriptions = []
@@ -36,8 +40,38 @@ def index():
 
 @socketio.on('audio_chunk')
 def handle_audio_chunk(data):
-    """Handle incoming audio chunks - disabled (using Web Speech API)"""
-    return  # Skip - using Web Speech API instead
+    """Handle incoming audio chunks"""
+    global transcriptions
+
+    try:
+        # Convert audio chunk to numpy array
+        audio_data = np.frombuffer(data, dtype=np.int16)
+
+        # Save audio chunk to a temporary WAV file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            with wave.open(temp_audio, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(16000)
+                wf.writeframes(audio_data.tobytes())
+
+            # Transcribe audio file
+            result = model.transcribe(temp_audio.name)
+
+            # Append to transcriptions
+            transcriptions.append(result['text'])
+
+            # Send update to all clients
+            emit('update', {
+                'text': result['text'],
+                'full_text': " ".join(transcriptions)
+            }, broadcast=True)
+
+            # Clean up temp file
+            os.unlink(temp_audio.name)
+
+    except Exception as e:
+        print(f"Error processing audio chunk: {e}")
 
 @socketio.on('check_whisper')
 def check_whisper():
@@ -54,8 +88,29 @@ def handle_reset():
 
 @app.route('/upload-audio', methods=['POST'])
 def upload_audio():
-    """Handle audio file upload - currently disabled"""
-    return jsonify({'error': 'File upload transcription requires Whisper model. Please use real-time recording instead.'}), 400
+    """Handle audio file upload"""
+    if 'audio_file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+
+    file = request.files['audio_file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+
+    try:
+        # Save to a temporary file
+        temp_audio_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
+        file.save(temp_audio_path)
+
+        # Transcribe audio file
+        result = model.transcribe(temp_audio_path)
+
+        # Clean up temp file
+        os.unlink(temp_audio_path)
+
+        return jsonify({'text': result['text']})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/export', methods=['POST'])
 def export_docx():
@@ -111,4 +166,4 @@ if __name__ == '__main__':
     import os
     port = int(os.environ.get('PORT', 5000))
     print("Starting server...")
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
