@@ -2,7 +2,11 @@
 <html lang="kn">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#667eea" />
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Speech to Word</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
@@ -26,11 +30,38 @@
   <!-- Main/Page -->
   <main class="page-wrap">
     <div class="page">
+      <!-- Tab Navigation -->
+      <div class="tabs">
+        <button class="tab-button active" data-tab="realtime-tab">Real-time Recording</button>
+        <button class="tab-button" data-tab="upload-tab">Upload Audio File</button>
+      </div>
+      
       <div class="toolbar">
         <button id="clearBtn" class="secondary">Clear</button>
         <button id="downloadBtn" class="secondary">Download Word</button>
       </div>
-      <div id="transcript" class="transcript" aria-live="polite"></div>
+      
+      <!-- Real-time Recording Tab -->
+      <div id="realtime-tab" class="tab-content active">
+        <div id="transcript" class="transcript" aria-live="polite"></div>
+      </div>
+      
+      <!-- File Upload Tab -->
+      <div id="upload-tab" class="tab-content">
+        <div class="file-upload-section">
+          <h3>Or upload an audio file</h3>
+          <div class="file-upload-container">
+            <input type="file" id="audioUpload" accept="audio/*" class="file-input" />
+            <label for="audioUpload" class="file-upload-btn">
+              <span>Choose Audio File</span>
+              <span id="fileName">No file selected</span>
+            </label>
+            <button id="uploadBtn" class="primary" disabled>Transcribe</button>
+          </div>
+          <div id="uploadStatus" class="muted"></div>
+          <div id="fileTranscript" class="transcript" aria-live="polite"></div>
+        </div>
+      </div>
     </div>
   </main>
 

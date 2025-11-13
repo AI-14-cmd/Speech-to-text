@@ -1,5 +1,5 @@
-// Backend API URL
-const API_URL = 'https://speech-to-text-4aq9.onrender.com';
+// Backend API URL (same domain since both are served from Render)
+const API_URL = '';
 
 // DOM elements
 const recBtn = document.getElementById('recBtn');

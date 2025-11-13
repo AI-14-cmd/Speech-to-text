@@ -2,12 +2,19 @@
 const socket = io();
 
 // DOM elements
+const audioUpload = document.getElementById('audioUpload');
+const uploadBtn = document.getElementById('uploadBtn');
+const fileName = document.getElementById('fileName');
+const uploadStatus = document.getElementById('uploadStatus');
 const recBtn = document.getElementById('recBtn');
 const recStatus = document.getElementById('recStatus');
 const transcript = document.getElementById('transcript');
+const fileTranscript = document.getElementById('fileTranscript');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearBtn = document.getElementById('clearBtn');
 const languageSelect = document.getElementById('language');
+const tabButtons = document.querySelectorAll('.tab-button');
+const tabContents = document.querySelectorAll('.tab-content');
 
 // Audio capture variables
 let mediaRecorder = null;
@@ -30,8 +37,8 @@ async function initMediaRecorder() {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
         
-        // Create script processor for real-time chunk sending (every ~1 second)
-        processor = audioContext.createScriptProcessor(16000, 1, 1);
+        // Create script processor for real-time chunk sending (every ~4 seconds)
+        processor = audioContext.createScriptProcessor(64000, 1, 1);
         
         processor.onaudioprocess = (event) => {
             const inputData = event.inputBuffer.getChannelData(0);
@@ -177,23 +184,36 @@ function stopListening() {
 
 // Clear transcript
 function clearTranscript() {
-    fullTranscript = '';
-    transcript.textContent = '';
+    const activeTab = document.querySelector('.tab-content.active').id;
+    
+    if (activeTab === 'realtime-tab') {
+        fullTranscript = '';
+        transcript.textContent = '';
+        
+        // Reset transcriptions on server
+        socket.emit('reset');
+        
+        // Show feedback
+        recStatus.textContent = 'Transcript cleared';
+        recStatus.className = 'muted';
+        
+        setTimeout(() => {
+            if (!isRecording) {
+                recStatus.textContent = 'Ready';
+                recStatus.className = 'status-idle';
+            }
+        }, 1500);
+    } else {
+        // Clear file upload transcript
+        fileTranscript.textContent = '';
+        audioUpload.value = '';
+        fileName.textContent = 'No file selected';
+        uploadBtn.disabled = true;
+        uploadStatus.textContent = 'Cleared';
+        uploadStatus.className = 'muted';
+    }
+    
     downloadBtn.disabled = true;
-    
-    // Reset transcriptions on server
-    socket.emit('reset');
-    
-    // Show feedback
-    recStatus.textContent = 'Transcript cleared';
-    recStatus.className = 'muted';
-    
-    setTimeout(() => {
-        if (!isRecording) {
-            recStatus.textContent = 'Ready';
-            recStatus.className = 'status-idle';
-        }
-    }, 1500);
 }
 
 // Download transcript as Word document
@@ -226,6 +246,75 @@ function downloadTranscript() {
         console.error('Download failed:', error);
     });
 }
+
+// File upload handling
+audioUpload.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        fileName.textContent = file.name;
+        uploadBtn.disabled = false;
+    } else {
+        fileName.textContent = 'No file selected';
+        uploadBtn.disabled = true;
+    }
+});
+
+// Handle upload button click
+uploadBtn.addEventListener('click', async () => {
+    const file = audioUpload.files[0];
+    if (!file) return;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('language', languageSelect.value);
+    
+    // Update UI
+    uploadBtn.disabled = true;
+    uploadStatus.textContent = 'Processing audio...';
+    uploadStatus.className = '';
+    
+    try {
+        const response = await fetch('/upload-audio', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            // Clear previous transcript
+            fileTranscript.textContent = 'Processing audio...';
+            uploadStatus.textContent = 'Transcribing...';
+            uploadStatus.className = 'status-listening';
+        } else {
+            throw new Error(result.error || 'Failed to transcribe audio');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        uploadStatus.textContent = `Error: ${error.message}`;
+        uploadStatus.className = 'status-error';
+    } finally {
+        uploadBtn.disabled = false;
+    }
+});
+
+// Tab switching functionality
+tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+        // Remove active class from all buttons and contents
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabContents.forEach(content => content.classList.remove('active'));
+        
+        // Add active class to clicked button and corresponding content
+        button.classList.add('active');
+        const tabId = button.getAttribute('data-tab');
+        document.getElementById(tabId).classList.add('active');
+        
+        // Clear any status messages when switching tabs
+        uploadStatus.textContent = '';
+        uploadStatus.className = 'muted';
+    });
+});
 
 // Event listeners
 recBtn.addEventListener('click', () => {
@@ -268,6 +357,40 @@ socket.on('disconnect', () => {
     console.log('Disconnected from server');
     if (isRecording) {
         stopListening();
+    }
+});
+
+// Listen for file transcription updates
+socket.on('file_transcription_update', (data) => {
+    if (data.error) {
+        console.error('Transcription error:', data.error);
+        fileTranscript.textContent = 'Error during transcription. Please try again.';
+        uploadStatus.textContent = 'Error: ' + data.error;
+        uploadStatus.className = 'status-error';
+        uploadBtn.disabled = false;
+        return;
+    }
+    
+    if (data.text) {
+        // Update the transcript with proper formatting
+        const formattedText = data.text.trim();
+        fileTranscript.textContent = formattedText;
+        fullTranscript = formattedText;
+        downloadBtn.disabled = false;
+        
+        // Auto-scroll to the bottom of the transcript
+        fileTranscript.scrollTop = fileTranscript.scrollHeight;
+        
+        if (data.is_final) {
+            uploadStatus.textContent = 'Transcription complete!';
+            uploadStatus.className = 'status-listening';
+            uploadBtn.disabled = false;
+        }
+    } else {
+        fileTranscript.textContent = 'No text was transcribed. Please try again.';
+        uploadStatus.textContent = 'Please try again';
+        uploadStatus.className = 'status-error';
+        uploadBtn.disabled = false;
     }
 });
 

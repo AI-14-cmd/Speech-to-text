@@ -1,32 +1,34 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, jsonify
 from flask_socketio import SocketIO, emit
 import io
 import numpy as np
 import threading
+import os
+import tempfile
+import wave
 from docx import Document
 from docx.shared import Pt
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-123'
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+
+# Ensure upload directory exists
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# File upload disabled - using Web Speech API only
+
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# Try to load Whisper model if available, otherwise use Web Speech API fallback
-try:
-    import whisper
-    print("Loading Whisper small model...")
-    model = whisper.load_model('small')
-    print("Whisper model loaded successfully!")
-    USE_WHISPER = True
-except Exception as e:
-    print(f"Warning: Could not load Whisper model: {e}")
-    print("Falling back to Web Speech API mode")
-    model = None
-    USE_WHISPER = False
+# Use Web Speech API mode (Whisper disabled due to compatibility issues)
+print("Using Web Speech API mode")
+model = None
+USE_WHISPER = False
 
-# Store transcriptions and audio data
+# Store transcriptions
 transcriptions = []
-audio_buffer = np.array([], dtype=np.float32)
-model_lock = threading.Lock()
 
 @app.route('/')
 def index():
@@ -34,31 +36,8 @@ def index():
 
 @socketio.on('audio_chunk')
 def handle_audio_chunk(data):
-    """Handle incoming audio chunks from the client"""
-    global audio_buffer
-    
-    if not USE_WHISPER:
-        return  # Skip if Whisper not available
-    
-    try:
-        # Convert array to numpy array
-        audio_data = np.array(data, dtype=np.float32)
-        audio_buffer = np.append(audio_buffer, audio_data)
-        
-        # Process when buffer reaches ~1 second (16000 samples at 16kHz)
-        if len(audio_buffer) >= 16000:
-            with model_lock:
-                result = model.transcribe(audio_buffer, language='kn', fp16=True)
-            
-            text = result['text'].strip()
-            if text:
-                transcriptions.append(text)
-                emit('update', {'text': text, 'full_text': ' '.join(transcriptions)}, broadcast=True)
-            
-            audio_buffer = np.array([], dtype=np.float32)
-    except Exception as e:
-        print(f"Error processing audio: {e}")
-        emit('error', {'message': str(e)}, broadcast=True)
+    """Handle incoming audio chunks - disabled (using Web Speech API)"""
+    return  # Skip - using Web Speech API instead
 
 @socketio.on('check_whisper')
 def check_whisper():
@@ -68,11 +47,15 @@ def check_whisper():
 @socketio.on('reset')
 def handle_reset():
     """Handle reset request"""
-    global transcriptions, audio_buffer
+    global transcriptions
     transcriptions = []
-    audio_buffer = np.array([], dtype=np.float32)
     emit('update', {'text': '', 'full_text': ''}, broadcast=True)
 
+
+@app.route('/upload-audio', methods=['POST'])
+def upload_audio():
+    """Handle audio file upload - currently disabled"""
+    return jsonify({'error': 'File upload transcription requires Whisper model. Please use real-time recording instead.'}), 400
 
 @app.route('/export', methods=['POST'])
 def export_docx():
@@ -125,7 +108,7 @@ def export_docx():
     )
 
 if __name__ == '__main__':
+    import os
+    port = int(os.environ.get('PORT', 5000))
     print("Starting server...")
-    print("Access via: http://localhost:5000 (microphone will work)")
-    print("Or via IP: http://192.168.1.5:5000 (microphone blocked by browser)")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)

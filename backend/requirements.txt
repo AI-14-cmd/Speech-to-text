@@ -2,8 +2,8 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 gunicorn==21.2.0
 python-multipart==0.0.6
-git+https://github.com/openai/whisper.git
-torch==2.1.0
-torchaudio==2.1.0
+openai-whisper==20231117
+torch==2.1.0+cpu ; platform_system == "Windows"
+torch==2.1.0 ; platform_system != "Windows"
 numpy<2.0.0
 setuptools<70.0.0
